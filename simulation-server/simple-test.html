@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { background: #f0f0f0; padding: 10px; height: 300px; overflow-y: auto; margin: 10px 0; }
+        button { padding: 10px 20px; margin: 5px; }
+        .status { padding: 5px 10px; border-radius: 3px; margin: 5px 0; display: inline-block; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    
+    <div>
+        <button onclick="connectWS()">Connect</button>
+        <button onclick="disconnectWS()">Disconnect</button>
+        <button onclick="sendMessage()">Send Test Message</button>
+        <span id="status" class="status disconnected">Disconnected</span>
+    </div>
+    
+    <div id="log" class="log">Ready to connect...\n</div>
+    
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.textContent = 'Connected';
+                status.className = 'status connected';
+            } else {
+                status.textContent = 'Disconnected';
+                status.className = 'status disconnected';
+            }
+        }
+        
+        function connectWS() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+                log('Already connected or connecting');
+                return;
+            }
+            
+            try {
+                log('Attempting to connect to ws://localhost:3000/realtime/stream');
+                ws = new WebSocket('ws://localhost:3000/realtime/stream');
+                
+                ws.onopen = function(event) {
+                    log('✅ Connected successfully!');
+                    updateStatus(true);
+                    reconnectAttempts = 0;
+                    
+                    // Send initial message
+                    setTimeout(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'test',
+                                message: 'Hello from simple test page',
+                                timestamp: new Date().toISOString()
+                            }));
+                            log('📤 Test message sent');
+                        }
+                    }, 100);
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📨 Received: ${data.type} - ${data.message || 'no message'}`);
+                        
+                        if (data.type === 'realtime_update') {
+                            log(`⚡ Real-time data: ${data.data.voltage}, ${data.data.current}, ${data.data.active_power}`);
+                        }
+                    } catch (error) {
+                        log(`📨 Raw message: ${event.data}`);
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    log(`❌ Connection closed: Code ${event.code}, Reason: ${event.reason || 'none'}`);
+                    updateStatus(false);
+                    
+                    // Auto-reconnect logic
+                    if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        log(`🔄 Reconnect attempt ${reconnectAttempts}/${maxReconnectAttempts} in 2 seconds...`);
+                        setTimeout(connectWS, 2000);
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    log(`🚨 WebSocket error: ${error.message || 'Unknown error'}`);
+                    updateStatus(false);
+                };
+                
+            } catch (error) {
+                log(`🚨 Failed to create WebSocket: ${error.message}`);
+                updateStatus(false);
+            }
+        }
+        
+        function disconnectWS() {
+            if (ws) {
+                log('Disconnecting...');
+                ws.close(1000, 'User initiated disconnect');
+                ws = null;
+                updateStatus(false);
+            }
+        }
+        
+        function sendMessage() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'ping',
+                    message: 'Test message from client',
+                    timestamp: new Date().toISOString()
+                };
+                ws.send(JSON.stringify(message));
+                log('📤 Test message sent');
+            } else {
+                log('❌ Not connected');
+            }
+        }
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            log('🚀 Page loaded');
+            setTimeout(connectWS, 500);
+        };
+        
+        // Clean up on page unload
+        window.onbeforeunload = function() {
+            if (ws) {
+                ws.close(1000, 'Page unload');
+            }
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Meter Real-time Monitor</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #667eea;
+        }
+        .card h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .metric-label {
+            font-weight: 600;
+            color: #666;
+        }
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 0 10px;
+            font-size: 1em;
+        }
+        button:hover {
+            background: #5a67d8;
+        }
+        button:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+        }
+        .timestamp {
+            color: #718096;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔌 Prepaid Energy Meter Real-time Monitor</h1>
+        <p>Live data from simulation server</p>
+    </div>
+
+    <div class="controls">
+        <button id="connectBtn" onclick="connectWebSocket()">Connect WebSocket</button>
+        <button id="disconnectBtn" onclick="disconnectWebSocket()" disabled>Disconnect</button>
+        <button onclick="fetchCurrentData()">Refresh Data</button>
+        <span id="connectionStatus" class="status disconnected">Disconnected</span>
+    </div>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>⚡ Real-time Readings</h3>
+            <div class="metric">
+                <span class="metric-label">Voltage:</span>
+                <span class="metric-value" id="voltage">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Current:</span>
+                <span class="metric-value" id="current">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Power Factor:</span>
+                <span class="metric-value" id="powerFactor">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Active Power:</span>
+                <span class="metric-value" id="activePower">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Frequency:</span>
+                <span class="metric-value" id="frequency">--</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>💰 Balance Information</h3>
+            <div class="metric">
+                <span class="metric-label">Current Balance:</span>
+                <span class="metric-value" id="balance">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Meter ID:</span>
+                <span class="metric-value" id="meterId">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Last Updated:</span>
+                <span class="metric-value timestamp" id="lastUpdated">--</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📊 System Status</h3>
+            <div class="metric">
+                <span class="metric-label">Connection:</span>
+                <span class="metric-value" id="systemStatus">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Data Updates:</span>
+                <span class="metric-value" id="updateCount">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Server Time:</span>
+                <span class="metric-value timestamp" id="serverTime">--</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>📝 Event Log</h3>
+        <div id="eventLog" class="log">
+            Waiting for connection...
+        </div>
+    </div>
+
+    <script>
+        let websocket = null;
+        let updateCount = 0;
+
+        function log(message) {
+            const logElement = document.getElementById('eventLog');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            
+            if (connected) {
+                statusElement.textContent = 'Connected';
+                statusElement.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                document.getElementById('systemStatus').textContent = 'Online';
+            } else {
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                document.getElementById('systemStatus').textContent = 'Offline';
+            }
+        }
+
+        function connectWebSocket() {
+            try {
+                // Close existing connection if any
+                if (websocket) {
+                    websocket.close();
+                    websocket = null;
+                }
+
+                log('🔄 Attempting to connect to WebSocket...');
+                websocket = new WebSocket('ws://localhost:3000/realtime/stream');
+                
+                websocket.onopen = function(event) {
+                    log('✅ WebSocket connected successfully');
+                    updateConnectionStatus(true);
+                    
+                    // Send a test message to confirm bidirectional communication
+                    setTimeout(() => {
+                        if (websocket && websocket.readyState === WebSocket.OPEN) {
+                            websocket.send(JSON.stringify({
+                                type: 'client_hello',
+                                message: 'Hello from dashboard',
+                                timestamp: new Date().toISOString()
+                            }));
+                            log('📤 Test message sent to server');
+                        }
+                    }, 100);
+                };
+
+                websocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        if (data.type === 'realtime_update') {
+                            updateCount++;
+                            updateMeterDisplay(data.data);
+                            document.getElementById('updateCount').textContent = updateCount;
+                            document.getElementById('serverTime').textContent = new Date(data.timestamp).toLocaleTimeString();
+                            log(`📊 Real-time update #${updateCount} received`);
+                        } else if (data.type === 'connection') {
+                            log(`🔗 ${data.message}`);
+                            if (data.client_id) {
+                                log(`👤 Client ID: ${data.client_id}`);
+                            }
+                        } else if (data.type === 'echo') {
+                            log(`📨 Echo received: ${data.received.message || 'no message'}`);
+                        } else if (data.type === 'error') {
+                            log(`🚨 Server error: ${data.message}`);
+                        } else {
+                            log(`📨 Message: ${JSON.stringify(data)}`);
+                        }
+                    } catch (error) {
+                        log(`🚨 Error parsing message: ${error.message}`);
+                    }
+                };
+
+                websocket.onclose = function(event) {
+                    log(`❌ WebSocket connection closed (Code: ${event.code}, Reason: ${event.reason || 'none'})`);
+                    updateConnectionStatus(false);
+                    
+                    // Attempt to reconnect after 2 seconds unless manually disconnected
+                    if (event.code !== 1000) { // 1000 = normal closure
+                        log('🔄 Will attempt to reconnect in 2 seconds...');
+                        setTimeout(() => {
+                            if (!websocket || websocket.readyState === WebSocket.CLOSED) {
+                                connectWebSocket();
+                            }
+                        }, 2000);
+                    }
+                };
+
+                websocket.onerror = function(error) {
+                    log(`🚨 WebSocket error: ${error.message || 'Connection failed'}`);
+                    updateConnectionStatus(false);
+                };
+
+                // Set a timeout for connection
+                setTimeout(() => {
+                    if (websocket && websocket.readyState === WebSocket.CONNECTING) {
+                        log('⏰ Connection timeout, retrying...');
+                        websocket.close();
+                    }
+                }, 5000);
+
+            } catch (error) {
+                log(`🚨 Failed to create WebSocket: ${error.message}`);
+                updateConnectionStatus(false);
+            }
+        }
+
+        function disconnectWebSocket() {
+            if (websocket) {
+                websocket.close();
+                websocket = null;
+                log('🔌 WebSocket disconnected by user');
+                updateConnectionStatus(false);
+            }
+        }
+
+        function updateMeterDisplay(data) {
+            document.getElementById('voltage').textContent = data.voltage || '--';
+            document.getElementById('current').textContent = data.current || '--';
+            document.getElementById('powerFactor').textContent = data.power_factor || '--';
+            document.getElementById('activePower').textContent = data.active_power || '--';
+            document.getElementById('frequency').textContent = data.frequency || '--';
+            document.getElementById('balance').textContent = data.current_balance || '--';
+            document.getElementById('meterId').textContent = data.meter_id || '--';
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        }
+
+        async function fetchCurrentData() {
+            try {
+                log('🔄 Fetching current data from API...');
+                const response = await fetch('http://localhost:3000/api/realtime');
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateMeterDisplay(result.data);
+                    log('✅ Current data fetched successfully');
+                } else {
+                    log(`❌ API error: ${result.message}`);
+                }
+            } catch (error) {
+                log(`🚨 Failed to fetch data: ${error.message}`);
+            }
+        }
+
+        // Auto-connect on page load
+        window.onload = function() {
+            log('🚀 Page loaded, attempting to connect...');
+            fetchCurrentData();
+            setTimeout(connectWebSocket, 1000);
+        };
+
+        // Cleanup on page unload
+        window.onbeforeunload = function() {
+            if (websocket) {
+                websocket.close();
+            }
+        };
+    </script>
+</body>
+</html>
